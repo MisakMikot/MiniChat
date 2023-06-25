@@ -17,6 +17,7 @@ SERVER = {"bind": "0.0.0.0", "port": 9898}
 
 conns = []
 
+#尝试启用日志系统
 try:
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
     if not os.path.isdir("logs"):
@@ -47,8 +48,8 @@ except Exception as e:
     print("日志系统启动失败")
 
 
+# 初始化数据库
 def InitDb():
-    # 初始化数据库
     try:
         # 尝试连接
         log.info("尝试连接到数据库（{}:{}）".format(DATABASE["address"], DATABASE["port"]))
@@ -156,8 +157,8 @@ def CmdHandle():
         log.error("命令系统出现错误，请重启服务器！", exc_info=True)
 
 
+# 创建socket对象
 def InitSvr():
-    # 创建socket对象
     sock = socket.socket()
     try:
         # 尝试绑定服务器
@@ -178,10 +179,25 @@ def InitSvr():
     while True:
         s, addr = sock.accept()
         log.info("传入连接：{}".format(str(addr)))
+        tmsg = Thread(target=MsgHandle, kwargs={'s':s, 'addr':addr})
+        tmsg.start()
 
 
+#消息处理
 def MsgHandle(s, addr):
-    pass
+    while True:
+        try:
+            #接受消息
+            msg = s.recv(10240000).decode('utf-8')
+            log.info('客户端{}发送了一条消息：{}'.format(str(addr), msg))
+            time.sleep(0.1)
+            s.send('KEEP ALIVE'.encode('utf-8'))
+        except Exception as e:
+            log.error('一个客户端断开连接！{}'.format(str(addr)),exc_info=True)
+            return
+        if msg == 'TEST MINICHAT SERVER':
+            log.info('客户端{}发送了服务器验证消息，正在答复'.format(str(addr)))
+            s.send('MINICHAT SERVER OK'.encode('utf-8'))
 
 
 if __name__ == "__main__":

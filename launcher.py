@@ -111,6 +111,7 @@ class ui(QObject):
 
 #处理消息
 def msgHaldle(s):
+    global trustedServer
     #验证服务器是否为聊天服务器
     ui.info('信息', '正在验证服务器')
     s.send('TEST MINICHAT SERVER'.encode('utf-8'))
@@ -127,7 +128,6 @@ def msgHaldle(s):
     while True:
         #接受消息
         try:
-            print(111)
             msg = s.recv(1024000).decode('utf-8')
         except Exception as e:
             if '10038' in str(e):
@@ -138,7 +138,9 @@ def msgHaldle(s):
                 ui.error(title='错误', content=str(e))
                 return
             
-        print(msg.decode('utf-8'))
+        print(msg)
+        if msg == 'MINICHAT SERVER OK':
+            trustedServer = True
 
 #连接按钮触发操作
 def connect():
