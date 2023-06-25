@@ -8,10 +8,12 @@ import socket
 import base64
 from qfluentwidgets import InfoBar, InfoBarPosition
 from threading import Thread
+import time
 from qframelesswindow import FramelessMainWindow
 
 s = socket.socket()
 connected = False
+trustedServer = False
 
 
 class MyLauncher(QMainWindow):
@@ -73,9 +75,8 @@ class slots(QObject):
         launcher.ledit_addr.setDisabled(False)
         launcher.sbox_port.setDisabled(False)
 
-
+# 定义信号
 class ui(QObject):
-    # 定义信号
     signal_error = pyqtSignal(str, str)
     signal_loadon = pyqtSignal()
     signal_loadoff = pyqtSignal()
@@ -108,22 +109,38 @@ class ui(QObject):
     def unlock(self):
         self.signal_unlock.emit()
 
-
+#处理消息
 def msgHaldle(s):
+    #验证服务器是否为聊天服务器
+    ui.info('信息', '正在验证服务器')
+    s.send('TEST MINICHAT SERVER'.encode('utf-8'))
+    def testTimer():
+        time.sleep(5)
+        if trustedServer:
+            ui.info('信息', '这是受信任的MiniChat服务器')
+            ui.unlock()
+        else:
+            ui.error('错误', '这不是受信任的MiniChat服务器')
+            connect()
+    t = Thread(target=testTimer)
+    t.start()
     while True:
+        #接受消息
         try:
-            msg = s.recv(1024).decode('utf-8')
+            print(111)
+            msg = s.recv(1024000).decode('utf-8')
         except Exception as e:
             if '10038' in str(e):
-                ui.lock()
                 ui.info(title='信息', content='连接断开')
+                connect()
                 return
             else:
                 ui.error(title='错误', content=str(e))
+                return
             
-        print(msg)
+        print(msg.decode('utf-8'))
 
-
+#连接按钮触发操作
 def connect():
     global s
     global connected
@@ -161,13 +178,11 @@ def connect():
     ui.info(title='信息',content='连接到服务器')
     launcher.btn_conn.setText('断开')
     connected = True
-    ui.unlock()
     t = Thread(target=msgHaldle, kwargs={'s':s})
     t.start()
 
-
+# 信号槽连接
 def slotConn():
-    # 信号槽连接
     launcher.btn_conn.clicked.connect(lambda: Thread(target=connect).start())
     # 自定义信号连接
     ui.signal_error.connect(slots.error)
@@ -177,9 +192,8 @@ def slotConn():
     ui.signal_lock.connect(slots.lock)
     ui.signal_unlock.connect(slots.unlock)
 
-
+# 程序主函数
 def main():
-    # 程序主函数
     if not os.path.isdir("data"):
         # 检查数据目录
         os.mkdir("data")
