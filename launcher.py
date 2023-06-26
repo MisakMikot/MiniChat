@@ -5,11 +5,12 @@ import socket
 import sys
 import time
 from threading import Thread
+from subprocess import Popen
 
 from PyQt5.QtCore import Qt, pyqtSignal, QObject, QRegExp
 from PyQt5.QtGui import QRegExpValidator
 from PyQt5.QtWidgets import QMainWindow, QApplication
-from qfluentwidgets import InfoBar, InfoBarPosition
+from qfluentwidgets import InfoBar, InfoBarPosition, Dialog
 
 from Ui_launcher import Ui_launcherui
 
@@ -18,11 +19,22 @@ connected = False
 trustedServer = False
 availableUsername = 'waiting'
 regStat = 'waiting'
+logStat = 'waiting'
+
+nickname = None
 
 
 class MyLauncher(QMainWindow):
     # 重写QMainWindow类
-    pass
+    def closeEvent(self, event):
+        w = Dialog('信息', '是否要退出MiniChat登录器')
+        if w.exec():
+            s.close()
+            pid = os.getpid()
+            _ = Popen('taskkill /F /PID %s' % str(pid))
+            # 通知服务器的代码省略，这里不是重点...
+        else:
+            event.ignore()
 
 
 class slots(QObject):
@@ -126,6 +138,8 @@ def msgHaldle(s):
     global trustedServer
     global availableUsername
     global regStat
+    global logStat
+    global nickname
     trustedServer = False
     # 验证服务器是否为聊天服务器
     ui.info('信息', '正在验证服务器')
@@ -177,6 +191,13 @@ def msgHaldle(s):
                 regStat = 'error'
                 errmsg = msg['errmsg']
                 ui.error('注册失败', errmsg)
+        # 登录结果
+        if msg['cmd'] == 'get_session_code':
+            if msg['status'] == 'ok':
+                nickname = msg['nickname']
+                logStat = 'ok'
+            elif msg['status'] == 'wrong':
+                logStat = 'wrong'
 
 
 # 连接按钮触发操作
@@ -268,11 +289,37 @@ def register():
             break
 
 
+# 登录并获取会话代码
+def login():
+    # 获取输入
+    global logStat
+    ui.loadon()
+    account = launcher.ledit_account.text()
+    password = launcher.ledit_password.text()
+    if account == '' or password == '':
+        ui.error('错误', '账号或密码不能为空')
+        ui.loadoff()
+        return
+    s.send(json.dumps({"cmd":"get_session_code", "username":account, "password":md5(password)}).encode('utf-8'))
+    while True:
+        time.sleep(0.1)
+        if logStat == 'waiting':
+            continue
+        elif logStat == 'wrong':
+            ui.error('错误', '用户名或密码错误')
+            logStat = 'waiting'
+            ui.loadoff()
+        elif logStat == 'ok':
+            ui.info('信息','登录成功，欢迎回来，%s' % nickname)
+            logStat = 'waiting'
+            break
+
 
 # 信号槽连接
 def slotConn():
     launcher.btn_conn.clicked.connect(lambda: Thread(target=connect).start())
     launcher.btn_register.clicked.connect(lambda: Thread(target=register).start())
+    launcher.btn_login.clicked.connect(lambda :Thread(target=login).start())
     # 自定义信号连接
     ui.signal_error.connect(slots.error)
     ui.signal_loadon.connect(slots.loadon)

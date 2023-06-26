@@ -2,9 +2,9 @@ import json
 import logging
 import os
 import socket
+import subprocess
 import time
 import uuid
-import json
 from threading import Thread
 
 import pymysql
@@ -19,6 +19,8 @@ DATABASE = {
     "autocommit": False
 }
 SERVER = {"bind": "0.0.0.0", "port": 9898}
+commands = [{"cmd": "stop", "needParams": False,
+             "operation": "log.info('正在关闭服务器');cursor.execute('drop table sessions'); db.close(); pid = os.getpid(); subprocess.Popen('taskkill /F /PID {}'.format(pid));"}]
 
 conns = []
 db = None
@@ -53,6 +55,8 @@ try:
 except Exception as e:
     print(e)
     print("日志系统启动失败")
+
+___aaa = subprocess.PIPE
 
 
 # 初始化数据库
@@ -103,7 +107,22 @@ def InitDb():
             log.debug("表：users 已存在")
         else:
             log.error("建表失败！", exc_info=True)
-
+    try:
+        # 初始化会话表
+        log.debug("尝试建表：sessions")
+        sql = """
+        CREATE TABLE `minichat`.`sessions`  (
+            `sessionID` varchar(255) NOT NULL,
+            `uuid` int NOT NULL
+            );
+            """
+        cursor.execute(sql)
+        log.debug("新建的表：sessions")
+    except Exception as e:
+        if "1050" in str(e):
+            log.debug("表：sessions 已存在")
+        else:
+            log.error("建表失败！", exc_info=True)
     try:
         # 初始化好友列表
         log.debug("尝试建表：friends")
@@ -160,13 +179,43 @@ def InitDb():
             log.error("建表失败！", exc_info=True)
 
 
+# 命令系统
 def CmdHandle():
+    # 命令列表
     log.info("命令系统上线")
     try:
         while True:
+            # 获取输入
+            isCommand = 0
             cmd = input("> ")
             if cmd == '':
                 continue
+            cmds = cmd.split(' ')
+            # 分离命令和参数
+            maincmd = cmds[0]
+            for i in commands:
+                if not maincmd == i["cmd"]:
+                    continue
+                if i['needParams']:
+                    try:
+                        # 带有参数的命令
+                        param = cmd[1]
+                        command = i['operation'].replace('#PARAM#', param)
+                        log.info('执行命令“%s”，传入参数“%s”' % (maincmd, param))
+                        exec(command)
+                        break
+                    except IndexError:
+                        log.error('命令“%s”需要有效的参数输入' % maincmd)
+                        break
+                    except:
+                        log.error('命令“%s”在执行过程中出现了错误' % cmd, exc_info=True)
+                else:
+                    # 正常命令
+                    command = i['operation']
+                    try:
+                        exec(command)
+                    except:
+                        log.error('命令“%s”在执行过程中出现了错误' % cmd, exc_info=True)
     except Exception as e:
         log.error("命令系统出现错误，请重启服务器！", exc_info=True)
 
@@ -198,9 +247,21 @@ def InitSvr():
 
 
 def genName():
-    id = 'MC老哥_'+str(uuid.uuid4()).split('-')[1]
+    id = 'MC老哥_' + str(uuid.uuid4()).split('-')[1]
     return id
 
+
+# 生成会话ID并验证
+def genSessionID():
+    while True:
+        sid = str(uuid.uuid4()).replace('-', '')
+        sql = 'SELECT * FROM `sessions` WHERE sessionID="%s"' % sid
+        cursor.execute(sql)
+        res = cursor.fetchone()
+        if res:
+            continue
+        else:
+            return sid
 
 
 # 消息处理
@@ -231,10 +292,12 @@ def MsgHandle(s, addr):
             names = len(results)
             if not names == 0:
                 log.debug(str(results))
-                log.info('对于客户端{}发送的用户名可用性检查请求，查询到有匹配的用户名，向客户端发送错误信息...'.format(str(addr)))
-                s.send(json.dumps({"cmd":"check_username", "status":"existed"}).encode('utf-8'))
+                log.info('对于客户端{}发送的用户名可用性检查请求，查询到有匹配的用户名，向客户端发送错误信息...'.format(
+                    str(addr)))
+                s.send(json.dumps({"cmd": "check_username", "status": "existed"}).encode('utf-8'))
             else:
-                log.info('对于客户端{}发送的用户名可用性检查请求，没有查询到匹配的用户名，向客户端发送结果...'.format(str(addr)))
+                log.info('对于客户端{}发送的用户名可用性检查请求，没有查询到匹配的用户名，向客户端发送结果...'.format(
+                    str(addr)))
                 s.send(json.dumps({"cmd": "check_username", "status": "ok"}).encode('utf-8'))
         # 添加注册信息
         elif msg['cmd'] == 'register':
@@ -250,12 +313,34 @@ def MsgHandle(s, addr):
                 cursor.execute(sql)
                 db.commit()
                 log.info('向数据库添加了一条记录')
-                s.send(json.dumps({"cmd":"register", "status":"ok"}).encode())
+                s.send(json.dumps({"cmd": "register", "status": "ok"}).encode())
             except Exception as e:
                 log.error('发生错误，正在回滚数据库', exc_info=True)
                 db.rollback()
-                s.send(json.dumps({"cmd":"register", "status":"error", "errmsg":str(e)}).encode())
-
+                s.send(json.dumps({"cmd": "register", "status": "error", "errmsg": str(e)}).encode())
+        # 获取会话代码
+        elif msg['cmd'] == 'get_session_code':
+            username = msg['username']
+            password = msg['password']
+            log.info('客户端%s请求用户“%s”的会话代码，正在查询..' % (str(addr), username))
+            # 验证账号密码是否正确
+            sql = 'SELECT * FROM `users` WHERE loginname="%s" AND `password`="%s"' % (username, password)
+            cursor.execute(sql)
+            result = cursor.fetchone()
+            print(result)
+            if not result:
+                log.warning('客户端%s请求了错误的用户名或密码，返回错误信息' % str(addr))
+                s.send(json.dumps({"cmd": "get_session_code", "status": "wrong"}).encode('utf-8'))
+            else:
+                log.info('生成会话代码并将查询结果发送至客户端%s' % str(addr))
+                sid = genSessionID()
+                uid = result[0]
+                nickname = result[1]
+                sql = """INSERT INTO sessions ( sessionID, uuid )
+                            VALUES
+                                (%s, %s)
+                """ % (sid, uid)
+                s.send(json.dumps({"cmd": "get_session_code", "status": "ok", "code": sid, "nickname": nickname}).encode('utf-8'))
 
 
 if __name__ == "__main__":
