@@ -1,9 +1,11 @@
-import socket
-import pymysql
+import json
 import logging
 import os
+import socket
 import time
 from threading import Thread
+
+import pymysql
 
 # 数据库信息
 DATABASE = {
@@ -17,7 +19,7 @@ SERVER = {"bind": "0.0.0.0", "port": 9898}
 
 conns = []
 
-#尝试启用日志系统
+# 尝试启用日志系统
 try:
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
     if not os.path.isdir("logs"):
@@ -179,25 +181,25 @@ def InitSvr():
     while True:
         s, addr = sock.accept()
         log.info("传入连接：{}".format(str(addr)))
-        tmsg = Thread(target=MsgHandle, kwargs={'s':s, 'addr':addr})
+        tmsg = Thread(target=MsgHandle, kwargs={'s': s, 'addr': addr})
         tmsg.start()
 
 
-#消息处理
+# 消息处理
 def MsgHandle(s, addr):
     while True:
         try:
-            #接受消息
-            msg = s.recv(10240000).decode('utf-8')
+            # 接受消息
+            msg = json.loads(s.recv(10240000).decode('utf-8'))
             log.info('客户端{}发送了一条消息：{}'.format(str(addr), msg))
-            time.sleep(0.1)
-            s.send('KEEP ALIVE'.encode('utf-8'))
-        except Exception as e:
-            log.error('一个客户端断开连接！{}'.format(str(addr)),exc_info=True)
+            #time.sleep(0.1)
+            #s.send('KEEP ALIVE'.encode('utf-8'))
+        except Exception:
+            log.error('一个客户端断开连接！{}'.format(str(addr)), exc_info=True)
             return
-        if msg == 'TEST MINICHAT SERVER':
+        if msg['cmd'] == 'test':
             log.info('客户端{}发送了服务器验证消息，正在答复'.format(str(addr)))
-            s.send('MINICHAT SERVER OK'.encode('utf-8'))
+            s.send('{"cmd":"test", "status":"OK"}'.encode('utf-8'))
 
 
 if __name__ == "__main__":

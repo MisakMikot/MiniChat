@@ -1,3 +1,5 @@
+import json
+
 from PyQt5 import QtWidgets, QtGui, QtCore
 from PyQt5.QtWidgets import QMainWindow, QApplication
 from PyQt5.QtCore import Qt, pyqtSignal, QObject
@@ -128,7 +130,7 @@ def msgHaldle(s):
     while True:
         #接受消息
         try:
-            msg = s.recv(1024000).decode('utf-8')
+            msg = json.loads(s.recv(1024000).decode('utf-8'))
         except Exception as e:
             if '10038' in str(e):
                 ui.info(title='信息', content='连接断开')
@@ -139,7 +141,7 @@ def msgHaldle(s):
                 return
             
         print(msg)
-        if msg == 'MINICHAT SERVER OK':
+        if msg["cmd"] == 'test' and msg["status"] == 'OK':
             trustedServer = True
 
 #连接按钮触发操作
