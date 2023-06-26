@@ -114,16 +114,20 @@ class ui(QObject):
 #处理消息
 def msgHaldle(s):
     global trustedServer
+    trustedServer = False
     #验证服务器是否为聊天服务器
     ui.info('信息', '正在验证服务器')
-    s.send('TEST MINICHAT SERVER'.encode('utf-8'))
+    ui.loadon()
+    s.send('{"cmd":"test"}'.encode('utf-8'))
     def testTimer():
         time.sleep(5)
         if trustedServer:
             ui.info('信息', '这是受信任的MiniChat服务器')
+            ui.loadoff()
             ui.unlock()
         else:
             ui.error('错误', '这不是受信任的MiniChat服务器')
+            ui.loadoff()
             connect()
     t = Thread(target=testTimer)
     t.start()

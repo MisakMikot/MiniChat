@@ -190,8 +190,10 @@ def MsgHandle(s, addr):
     while True:
         try:
             # 接受消息
-            msg = json.loads(s.recv(10240000).decode('utf-8'))
-            log.info('客户端{}发送了一条消息：{}'.format(str(addr), msg))
+            raw = s.recv(10240000).decode('utf-8')
+            print(raw)
+            msg = json.loads(raw)
+            log.info('客户端{}发送了一条消息：{}'.format(str(addr), raw))
             #time.sleep(0.1)
             #s.send('KEEP ALIVE'.encode('utf-8'))
         except Exception:
