@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Form implementation generated from reading ui file 'd:\Code\Python\MiniChat\launcher.ui'
+# Form implementation generated from reading ui file 'launcher.ui'
 #
 # Created by: PyQt5 UI code generator 5.15.9
 #

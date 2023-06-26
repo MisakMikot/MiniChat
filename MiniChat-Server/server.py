@@ -3,6 +3,8 @@ import logging
 import os
 import socket
 import time
+import uuid
+import json
 from threading import Thread
 
 import pymysql
@@ -14,10 +16,13 @@ DATABASE = {
     "user": "minichat",
     "password": "MiniDB",
     "dbname": "minichat",
+    "autocommit": False
 }
 SERVER = {"bind": "0.0.0.0", "port": 9898}
 
 conns = []
+db = None
+cursor = None
 
 # 尝试启用日志系统
 try:
@@ -52,6 +57,8 @@ except Exception as e:
 
 # 初始化数据库
 def InitDb():
+    global db
+    global cursor
     try:
         # 尝试连接
         log.info("尝试连接到数据库（{}:{}）".format(DATABASE["address"], DATABASE["port"]))
@@ -61,6 +68,7 @@ def InitDb():
             passwd=DATABASE["password"],
             port=DATABASE["port"],
             db=DATABASE["dbname"],
+            autocommit=DATABASE['autocommit']
         )
         log.info("成功连接到数据库！")
     except:
@@ -76,12 +84,16 @@ def InitDb():
         log.debug("尝试建表：users")
         sql = """
         CREATE TABLE `users`  (
-        `uuid` int NOT NULL,
+        `uuid` int NOT NULL AUTO_INCREMENT,
         `nickname` varchar(255) NOT NULL,
         `avatar_id` int NOT NULL,
         `sex` int NOT NULL,
         `password` varchar(255) NOT NULL,
-        `loginname` varchar(255) NOT NULL
+        `loginname` varchar(255) NOT NULL,
+        `birth_year` int(4) NOT NULL,
+        `birth_month` int(2) NOT NULL,
+        `birth_day` int(2) NOT NULL,
+        PRIMARY KEY (`uuid`)
         );
         """
         cursor.execute(sql)
@@ -185,6 +197,12 @@ def InitSvr():
         tmsg.start()
 
 
+def genName():
+    id = 'MC老哥_'+str(uuid.uuid4()).split('-')[1]
+    return id
+
+
+
 # 消息处理
 def MsgHandle(s, addr):
     while True:
@@ -194,14 +212,50 @@ def MsgHandle(s, addr):
             print(raw)
             msg = json.loads(raw)
             log.info('客户端{}发送了一条消息：{}'.format(str(addr), raw))
-            #time.sleep(0.1)
-            #s.send('KEEP ALIVE'.encode('utf-8'))
+            # time.sleep(0.1)
+            # s.send('KEEP ALIVE'.encode('utf-8'))
         except Exception:
             log.error('一个客户端断开连接！{}'.format(str(addr)), exc_info=True)
             return
+        # 验证服务器答复
         if msg['cmd'] == 'test':
             log.info('客户端{}发送了服务器验证消息，正在答复'.format(str(addr)))
-            s.send('{"cmd":"test", "status":"OK"}'.encode('utf-8'))
+            s.send(json.dumps({"cmd": "test", "status": "OK"}).encode('utf-8'))
+        # 检查用户名可用性
+        elif msg['cmd'] == 'check_username':
+            username = msg['username']
+            log.info('客户端{}请求验证用户名“{}”是否合法，正在查询...'.format(str(addr), username))
+            sql = "SELECT * FROM users WHERE loginname='{}'".format(username)
+            cursor.execute(sql)
+            results = cursor.fetchall()
+            names = len(results)
+            if not names == 0:
+                log.debug(str(results))
+                log.info('对于客户端{}发送的用户名可用性检查请求，查询到有匹配的用户名，向客户端发送错误信息...'.format(str(addr)))
+                s.send(json.dumps({"cmd":"check_username", "status":"existed"}).encode('utf-8'))
+            else:
+                log.info('对于客户端{}发送的用户名可用性检查请求，没有查询到匹配的用户名，向客户端发送结果...'.format(str(addr)))
+                s.send(json.dumps({"cmd": "check_username", "status": "ok"}).encode('utf-8'))
+        # 添加注册信息
+        elif msg['cmd'] == 'register':
+            username = msg['username']
+            password = msg['password']
+            log.info('用户名{}被客户端{}请求注册，正在向数据库添加信息...'.format(username, str(addr)))
+            sql = "INSERT INTO users (nickname,  \
+                  avatar_id, sex, password, loginname,  \
+                  birth_year, birth_month, birth_day)  \
+                  VALUES ('%s', %s, %s, '%s', '%s', %s, %s, %s)" % \
+                  (genName(), 0, 0, password, username, 2000, 1, 1)
+            try:
+                cursor.execute(sql)
+                db.commit()
+                log.info('向数据库添加了一条记录')
+                s.send(json.dumps({"cmd":"register", "status":"ok"}).encode())
+            except Exception as e:
+                log.error('发生错误，正在回滚数据库', exc_info=True)
+                db.rollback()
+                s.send(json.dumps({"cmd":"register", "status":"error", "errmsg":str(e)}).encode())
+
 
 
 if __name__ == "__main__":
