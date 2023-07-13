@@ -35,7 +35,7 @@ try:
     log.setLevel(logging.DEBUG)
     # 创建 handler 输出到文件
     file_handler = logging.FileHandler(
-        "logs/" + str(round(time.time())) + ".log", mode="w", encoding="utf-8"
+        "logs/" + "log_" + str(round(time.time())) + ".log", mode="w", encoding="utf-8"
     )  # 一定要加上 mode='w'
     file_handler.setLevel(logging.DEBUG)
     qt_handler = logging.Handler()
@@ -175,6 +175,24 @@ def InitDb():
     except Exception as e:
         if "1050" in str(e):
             log.debug("表：chatmessages 已存在")
+        else:
+            log.error("建表失败！", exc_info=True)
+    try:
+        # 初始化备注表
+        log.debug("尝试建表：remarks")
+        sql = """
+        CREATE TABLE `minichat`.`remarks`  (
+  `id` int NOT NULL,
+  `by_id` int NOT NULL,
+  `remark` varchar(255) NOT NULL,
+  PRIMARY KEY (`id`)
+);
+        """
+        cursor.execute(sql)
+        log.debug("新建的表：remarks")
+    except Exception as e:
+        if "1050" in str(e):
+            log.debug("表：remarks 已存在")
         else:
             log.error("建表失败！", exc_info=True)
 
@@ -332,15 +350,27 @@ def MsgHandle(s, addr):
                 log.warning('客户端%s请求了错误的用户名或密码，返回错误信息' % str(addr))
                 s.send(json.dumps({"cmd": "get_session_code", "status": "wrong"}).encode('utf-8'))
             else:
-                log.info('生成会话代码并将查询结果发送至客户端%s' % str(addr))
-                sid = genSessionID()
+                # 检查是否已经登录
                 uid = result[0]
                 nickname = result[1]
-                sql = """INSERT INTO sessions ( sessionID, uuid )
-                            VALUES
-                                (%s, %s)
-                """ % (sid, uid)
-                s.send(json.dumps({"cmd": "get_session_code", "status": "ok", "code": sid, "nickname": nickname}).encode('utf-8'))
+                sql = 'SELECT * FROM `sessions` WHERE uuid="%s"' % uid
+                cursor.execute(sql)
+                chksid = cursor.fetchone()
+                if chksid:
+                    log.info('查询到客户端%s请求的用户%s已经在另一台设备上登录')
+                    s.send(json.dumps(
+                        {"cmd": "get_session_code", "status": "already_login"}).encode('utf-8'))
+                else:
+                    log.info('生成会话代码并将查询结果发送至客户端%s' % str(addr))
+                    sid = genSessionID()
+
+                    sql = """INSERT INTO sessions ( sessionID, uuid )
+                                VALUES
+                                    ('%s', '%s')
+                    """ % (sid, uid)
+                    cursor.execute(sql)
+                    s.send(json.dumps(
+                        {"cmd": "get_session_code", "status": "ok", "code": sid, "nickname": nickname}).encode('utf-8'))
 
 
 if __name__ == "__main__":

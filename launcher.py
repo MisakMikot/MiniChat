@@ -15,6 +15,8 @@ from qfluentwidgets import InfoBar, InfoBarPosition, Dialog
 from Ui_launcher import Ui_launcherui
 
 s = socket.socket()
+addr = ''
+port=0
 connected = False
 trustedServer = False
 availableUsername = 'waiting'
@@ -22,6 +24,7 @@ regStat = 'waiting'
 logStat = 'waiting'
 
 nickname = None
+sid=None
 
 
 class MyLauncher(QMainWindow):
@@ -140,6 +143,7 @@ def msgHaldle(s):
     global regStat
     global logStat
     global nickname
+    global sid
     trustedServer = False
     # 验证服务器是否为聊天服务器
     ui.info('信息', '正在验证服务器')
@@ -196,14 +200,20 @@ def msgHaldle(s):
             if msg['status'] == 'ok':
                 nickname = msg['nickname']
                 logStat = 'ok'
+                sid = msg['code']
             elif msg['status'] == 'wrong':
                 logStat = 'wrong'
+            elif msg['status'] == 'already_login':
+                logStat = 'already_login'
+
 
 
 # 连接按钮触发操作
 def connect():
     global s
     global connected
+    global addr
+    global port
     if connected:
         # 断开连接
         s.close()
@@ -289,6 +299,10 @@ def register():
             break
 
 
+def startCli():
+    pass
+
+
 # 登录并获取会话代码
 def login():
     # 获取输入
@@ -302,6 +316,7 @@ def login():
         return
     s.send(json.dumps({"cmd":"get_session_code", "username":account, "password":md5(password)}).encode('utf-8'))
     while True:
+        # 检查登录状态
         time.sleep(0.1)
         if logStat == 'waiting':
             continue
@@ -309,10 +324,22 @@ def login():
             ui.error('错误', '用户名或密码错误')
             logStat = 'waiting'
             ui.loadoff()
+        elif logStat == 'already_login':
+            ui.error('错误', '该账号在另一台设备上登录')
+            logStat = 'waiting'
+            ui.loadoff()
         elif logStat == 'ok':
             ui.info('信息','登录成功，欢迎回来，%s' % nickname)
             logStat = 'waiting'
-            break
+            with open('%s\\session.id' % os.path.split(os.path.realpath(__file__))[0], 'w') as f:
+                # 写入会话代码
+                f.write(sid+'\n'+addr+'\n'+str(port))
+            time.sleep(0.1)
+            startCli()
+            ui.loadoff()
+            s.close()
+            pid = os.getpid()
+            _ = Popen('taskkill /F /PID %s' % str(pid))
 
 
 # 信号槽连接
