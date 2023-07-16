@@ -1,13 +1,13 @@
-import socket
-import os
+import json
 import logging
+import os
+import socket
+import subprocess
 import sys
 import time
-import pymysql
 from threading import Thread
-import subprocess
-import json
 
+import pymysql
 
 # 数据库信息
 DATABASE = {
@@ -19,11 +19,11 @@ DATABASE = {
     "autocommit": False
 }
 # 端口为登录服务器+1
-SERVER = {"bind":"0.0.0.0", "port":9899}
+SERVER = {"bind": "0.0.0.0", "port": 9899}
 # 预设指令
 commands = [{"cmd": "stop", "needParams": False,
              "operation": "log.info('正在关闭服务器');cursor.execute('drop table sessions'); db.close(); pid = os.getpid(); subprocess.Popen('taskkill /F /PID {}'.format(pid));"}]
-
+_useless = subprocess.PIPE
 
 # 尝试启用日志系统
 try:
@@ -56,10 +56,9 @@ except Exception as e:
     print("日志系统启动失败")
     sys.exit()
 
-
 # 连接数据库
 try:
-        # 尝试连接
+    # 尝试连接
     log.info("尝试连接到数据库（{}:{}）".format(DATABASE["address"], DATABASE["port"]))
     db = pymysql.connect(
         host=DATABASE["address"],
@@ -79,19 +78,68 @@ except:
 log.debug("创建游标对象")
 cursor = db.cursor()
 
+
+# 验证会话ID
+def verifySessionId(sid):
+    sql = 'SELECT * FROM `sessions` WHERE sessionID="%s"' % sid
+    cursor.execute(sql)
+    results = cursor.fetchall()
+    if not results:
+        return False
+    else:
+        return True
+
+
+# 从会话ID获取UUID
+def session_id_to_uuid(sid):
+    sql = 'SELECT * FROM `sessions` WHERE sessionID="%s"' % sid
+    cursor.execute(sql)
+    results = cursor.fetchone()
+    if not results:
+        return False
+    else:
+        return results[1]
+
+
 def MsgHandle(s, addr):
+    # 验证客户端
+    authed = False
+    session_id = ''
+    def verifyClient():
+        time.sleep(3)
+        if not authed:
+            log.info('客户端%s未通过验证' % str(addr))
+            s.close()
+            return
+    tVerifyClient = Thread(target=verifyClient)
+    tVerifyClient.start()
     while True:
         try:
             # 接受消息
             raw = s.recv(10240000).decode('utf-8')
-            print(raw)
             msg = json.loads(raw)
             log.info('客户端{}发送了一条消息：{}'.format(str(addr), raw))
-            # time.sleep(0.1)
-            # s.send('KEEP ALIVE'.encode('utf-8'))
+        except json.decoder.JSONDecodeError:
+            log.error('解析客户端%s发送的信息时错误，可能是遇到了网络粘包问题' % str(addr), exc_info=True)
+            continue
         except Exception:
             log.error('一个客户端断开连接！{}'.format(str(addr)), exc_info=True)
+            s.close()
             return
+        try:
+            # 处理信息
+            # 验证会话ID
+            if msg['cmd'] == 'verify_client':
+                session_id = msg['session_id']
+                if verifySessionId(session_id):
+                    authed = True
+                    s.send(json.dumps({'cmd': 'verify_client', 'status': 'success'}).encode('utf-8'))
+                else:
+                    s.send(json.dumps({'cmd': 'verify_client', 'status': 'failed'}).encode('utf-8'))
+                    s.close()
+        except IndexError:
+            log.error('客户端%s发送了不合法信息' % str(addr), exc_info=True)
+
 
 sock = socket.socket()
 try:
@@ -149,10 +197,6 @@ def CmdHandle():
     except Exception as e:
         log.error("命令系统出现错误，请重启服务器！", exc_info=True)
 
+
 tcmd = Thread(target=CmdHandle)
 tcmd.start()
-
-
-
-
-
